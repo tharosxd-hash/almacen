@@ -1,0 +1,39 @@
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Descomprimir proyecto
+        run: |
+          mkdir proyecto
+          unzip -q *.zip -d proyecto
+          find proyecto -name settings.gradle.kts -print
+
+      - name: Compilar APK
+        run: |
+          PROJECT_DIR=$(dirname "$(find proyecto -name settings.gradle.kts -print -quit)")
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --no-daemon
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Solicitud-Almacen-APK
+          path: proyecto/**/build/outputs/apk/debug/*.apk
