@@ -25,21 +25,19 @@ jobs:
           mkdir -p proyecto
           unzip -q *.zip -d proyecto
 
-          echo "Buscando proyecto Gradle..."
-          find proyecto -name settings.gradle.kts -o -name settings.gradle
+          echo "Contenido del proyecto:"
+          find proyecto -maxdepth 3 -type f
 
-      - name: Detectar proyecto Gradle
+      - name: Configurar proyecto
         run: |
-          PROJECT_DIR=$(dirname "$(find proyecto -name settings.gradle.kts -o -name settings.gradle -print -quit)")
+          PROJECT_DIR="proyecto"
 
-          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
-            echo "ERROR: No se encontró settings.gradle.kts ni settings.gradle"
-            find proyecto -maxdepth 5 -type f
-            exit 1
-          fi
-
-          echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "Proyecto: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          test -f "$PROJECT_DIR/settings.gradle.kts"
+          test -f "$PROJECT_DIR/build.gradle.kts"
+          test -f "$PROJECT_DIR/app/build.gradle.kts"
 
       - name: Configurar Java 17
         run: |
@@ -49,18 +47,17 @@ jobs:
       - name: Ajustar Java y Kotlin a JVM 17
         run: |
           python3 - <<'PY'
-          import os
           from pathlib import Path
 
-          project = Path(os.environ["PROJECT_DIR"])
+          project = Path("proyecto")
 
           files = list(project.rglob("build.gradle.kts")) + list(project.rglob("build.gradle"))
 
-          if not files:
-              print("ERROR: No se encontraron archivos build.gradle")
-              raise SystemExit(1)
+          print("Archivos Gradle encontrados:")
 
           for file in files:
+              print(f" - {file}")
+
               text = file.read_text()
 
               # Java 8 -> Java 17
@@ -81,14 +78,12 @@ jobs:
               )
 
               file.write_text(text)
-
-              print(f"Configurado: {file}")
           PY
 
       - name: Verificar Java
         run: |
-          java -version
           echo "JAVA_HOME=$JAVA_HOME"
+          java -version
 
       - name: Compilar APK
         run: |
@@ -100,5 +95,5 @@ jobs:
         with:
           name: Solicitud-Almacen-APK
           path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+            proyecto/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
