@@ -24,76 +24,44 @@ jobs:
         run: |
           mkdir -p proyecto
           unzip -q *.zip -d proyecto
-          echo "Proyecto encontrado:"
+          echo "Proyecto:"
           find proyecto -maxdepth 2 -type f
 
-      - name: Configurar Java y Kotlin 17
+      - name: Corregir Java 8 a Java 17
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          file = Path("proyecto/app/build.gradle.kts")
-          text = file.read_text()
-
-          # Java 8 -> Java 17
-          text = text.replace(
-              "JavaVersion.VERSION_1_8",
-              "JavaVersion.VERSION_17"
-          )
-
-          text = text.replace(
-              "JavaVersion.VERSION_8",
-              "JavaVersion.VERSION_17"
-          )
-
-          # Kotlin 1.8/8 -> 17
-          text = text.replace(
-              'jvmTarget = "1.8"',
-              'jvmTarget = "17"'
-          )
-
-          text = text.replace(
-              "jvmTarget = '1.8'",
-              'jvmTarget = "17"'
-          )
-
-          text = text.replace(
-              'jvmTarget = "8"',
-              'jvmTarget = "17"'
-          )
-
-          text = text.replace(
-              "jvmTarget = '8'",
-              'jvmTarget = "17"'
-          )
-
-          # Si no existe compileOptions, lo agregamos.
-          if "compileOptions" not in text:
-              text = text.replace(
-                  "android {",
-                  """android {
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }"""
-              )
-
-          file.write_text(text)
-
-          print("Configuración aplicada correctamente.")
-          PY
+          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' proyecto/app/build.gradle.kts
+          sed -i 's/JavaVersion.VERSION_8/JavaVersion.VERSION_17/g' proyecto/app/build.gradle.kts
+          sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' proyecto/app/build.gradle.kts
+          sed -i "s/jvmTarget = '1.8'/jvmTarget = '17'/g" proyecto/app/build.gradle.kts
+          sed -i 's/jvmTarget = "8"/jvmTarget = "17"/g' proyecto/app/build.gradle.kts
+          sed -i "s/jvmTarget = '8'/jvmTarget = '17'/g" proyecto/app/build.gradle.kts
 
       - name: Configurar Gradle
         run: |
           echo "org.gradle.java.home=$JAVA_HOME" >> proyecto/gradle.properties
           echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> proyecto/gradle.properties
 
+      - name: Forzar Java y Kotlin a 17
+        run: |
+          cat > proyecto/init.gradle <<'EOF'
+          allprojects {
+              tasks.withType(JavaCompile).configureEach {
+                  sourceCompatibility = "17"
+                  targetCompatibility = "17"
+              }
+
+              tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                  kotlinOptions.jvmTarget = "17"
+              }
+          }
+          EOF
+
       - name: Compilar APK
         run: |
           cd proyecto
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace --init-script init.gradle
 
-      - name: Verificar APK
+      - name: Buscar APK
         run: |
           find proyecto -type f -name "*.apk" -print
 
