@@ -25,75 +25,154 @@ jobs:
           mkdir -p proyecto
           unzip -q *.zip -d proyecto
 
-          echo "Contenido del proyecto:"
+          echo "=== Estructura del proyecto ==="
           find proyecto -maxdepth 3 -type f
 
       - name: Configurar proyecto
         run: |
           PROJECT_DIR="proyecto"
-
-          echo "Proyecto: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
           test -f "$PROJECT_DIR/settings.gradle.kts"
           test -f "$PROJECT_DIR/build.gradle.kts"
           test -f "$PROJECT_DIR/app/build.gradle.kts"
 
-      - name: Configurar Java 17
+      - name: Configurar Gradle
         run: |
-          echo "org.gradle.java.home=$JAVA_HOME" >> "$PROJECT_DIR/gradle.properties"
-          echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> "$PROJECT_DIR/gradle.properties"
+          cat >> "$PROJECT_DIR/gradle.properties" <<'EOF'
 
-      - name: Ajustar Java y Kotlin a JVM 17
+          org.gradle.java.home=$JAVA_HOME
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          kotlin.code.style=official
+          EOF
+
+      - name: Forzar JVM 17 en Android
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          project = Path("proyecto")
+          file = Path("proyecto/app/build.gradle.kts")
+          text = file.read_text()
 
-          files = list(project.rglob("build.gradle.kts")) + list(project.rglob("build.gradle"))
+          print("=== build.gradle.kts ORIGINAL ===")
+          print(text)
 
-          print("Archivos Gradle encontrados:")
+          # Eliminar configuraciones antiguas de Java 8
+          text = text.replace(
+              "JavaVersion.VERSION_1_8",
+              "JavaVersion.VERSION_17"
+          )
 
-          for file in files:
-              print(f" - {file}")
+          text = text.replace(
+              "JavaVersion.VERSION_8",
+              "JavaVersion.VERSION_17"
+          )
 
-              text = file.read_text()
+          text = text.replace(
+              'jvmTarget = "1.8"',
+              'jvmTarget = "17"'
+          )
 
-              # Java 8 -> Java 17
+          text = text.replace(
+              "jvmTarget = '1.8'",
+              "jvmTarget = '17'"
+          )
+
+          text = text.replace(
+              'jvmTarget = "8"',
+              'jvmTarget = "17"'
+          )
+
+          text = text.replace(
+              "jvmTarget = '8'",
+              "jvmTarget = '17'"
+          )
+
+          # Agregar configuración JVM 17 dentro del bloque android
+          if "compileOptions" not in text:
               text = text.replace(
-                  "JavaVersion.VERSION_1_8",
-                  "JavaVersion.VERSION_17"
+                  "android {",
+                  """android {
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+"""
               )
 
-              # Kotlin JVM 1.8 -> 17
-              text = text.replace(
-                  'jvmTarget = "1.8"',
-                  'jvmTarget = "17"'
-              )
+          # Si existe compileOptions pero todavía usa Java 8
+          text = text.replace(
+              "sourceCompatibility = JavaVersion.VERSION_1_8",
+              "sourceCompatibility = JavaVersion.VERSION_17"
+          )
 
-              text = text.replace(
-                  "jvmTarget = '1.8'",
-                  "jvmTarget = '17'"
-              )
+          text = text.replace(
+              "targetCompatibility = JavaVersion.VERSION_1_8",
+              "targetCompatibility = JavaVersion.VERSION_17"
+          )
 
-              file.write_text(text)
+          # Agregar configuración Kotlin moderna
+          if "compilerOptions" not in text:
+              text += """
+
+kotlin {
+    jvmToolchain(17)
+}
+"""
+
+          file.write_text(text)
+
+          print("=== build.gradle.kts MODIFICADO ===")
+          print(text)
           PY
+
+      - name: Crear configuración global de JVM
+        run: |
+          mkdir -p "$PROJECT_DIR/buildSrc/src/main/kotlin"
+
+          cat > "$PROJECT_DIR/init.gradle.kts" <<'EOF'
+          allprojects {
+              tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
+              }
+
+              tasks.withType<JavaCompile>().configureEach {
+                  sourceCompatibility = "17"
+                  targetCompatibility = "17"
+              }
+          }
+          EOF
 
       - name: Verificar Java
         run: |
-          echo "JAVA_HOME=$JAVA_HOME"
+          echo "=== JAVA ==="
           java -version
+
+          echo ""
+          echo "=== JAVA HOME ==="
+          echo "$JAVA_HOME"
 
       - name: Compilar APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug \
+            --no-daemon \
+            --stacktrace \
+            --init-script init.gradle.kts
+
+      - name: Verificar APK
+        run: |
+          echo "=== APK GENERADA ==="
+          find "$PROJECT_DIR" -path "*/build/outputs/apk/debug/*.apk" -type f -print
 
       - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
           name: Solicitud-Almacen-APK
           path: |
-            proyecto/app/build/outputs/apk/debug/*.apk
+            proyecto/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
