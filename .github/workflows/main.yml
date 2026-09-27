@@ -19,27 +19,34 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Descomprimir proyecto
         run: |
           mkdir -p proyecto
           unzip -q *.zip -d proyecto
-          echo "Contenido del proyecto:"
-          find proyecto -maxdepth 3 -type f | head -100
+
+          echo "Buscando proyecto Gradle..."
+          find proyecto -name settings.gradle.kts -o -name settings.gradle
 
       - name: Detectar proyecto Gradle
         run: |
-          PROJECT_DIR=$(dirname "$(find proyecto -name settings.gradle.kts -print -quit)")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          PROJECT_DIR=$(dirname "$(find proyecto -name settings.gradle.kts -o -name settings.gradle -print -quit)")
+
+          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
+            echo "ERROR: No se encontró settings.gradle.kts ni settings.gradle"
+            find proyecto -maxdepth 5 -type f
+            exit 1
+          fi
+
           echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Configurar Java 17
         run: |
           echo "org.gradle.java.home=$JAVA_HOME" >> "$PROJECT_DIR/gradle.properties"
           echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> "$PROJECT_DIR/gradle.properties"
 
-      - name: Configurar JVM de Kotlin a 17
+      - name: Ajustar Java y Kotlin a JVM 17
         run: |
           python3 - <<'PY'
           import os
@@ -48,6 +55,10 @@ jobs:
           project = Path(os.environ["PROJECT_DIR"])
 
           files = list(project.rglob("build.gradle.kts")) + list(project.rglob("build.gradle"))
+
+          if not files:
+              print("ERROR: No se encontraron archivos build.gradle")
+              raise SystemExit(1)
 
           for file in files:
               text = file.read_text()
@@ -58,7 +69,7 @@ jobs:
                   "JavaVersion.VERSION_17"
               )
 
-              # Kotlin JVM target 1.8 -> 17
+              # Kotlin JVM 1.8 -> 17
               text = text.replace(
                   'jvmTarget = "1.8"',
                   'jvmTarget = "17"'
@@ -71,23 +82,15 @@ jobs:
 
               file.write_text(text)
 
-              print(f"Revisado: {file}")
+              print(f"Configurado: {file}")
           PY
 
-      - name: Verificar versiones
+      - name: Verificar Java
         run: |
-          echo "Java:"
           java -version
+          echo "JAVA_HOME=$JAVA_HOME"
 
-          echo ""
-          echo "JAVA_HOME:"
-          echo "$JAVA_HOME"
-
-          echo ""
-          echo "Gradle:"
-          gradle --version
-
-      - name: Compilar APK Debug
+      - name: Compilar APK
         run: |
           cd "$PROJECT_DIR"
           gradle assembleDebug --no-daemon --stacktrace
