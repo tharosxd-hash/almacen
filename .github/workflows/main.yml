@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Preparar Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -25,6 +25,11 @@ jobs:
           mkdir proyecto
           unzip -q *.zip -d proyecto
           find proyecto -name settings.gradle.kts -print
+
+      - name: Configurar Java 17
+        run: |
+          PROJECT_DIR=$(dirname "$(find proyecto -name settings.gradle.kts -print -quit)")
+          echo "org.gradle.java.home=$JAVA_HOME" >> "$PROJECT_DIR/gradle.properties"
 
       - name: Compilar APK
         run: |
