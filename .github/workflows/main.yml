@@ -24,45 +24,98 @@ jobs:
         run: |
           mkdir -p proyecto
           unzip -q *.zip -d proyecto
-          echo "Proyecto:"
-          find proyecto -maxdepth 2 -type f
 
-      - name: Corregir Java 8 a Java 17
-        run: |
-          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' proyecto/app/build.gradle.kts
-          sed -i 's/JavaVersion.VERSION_8/JavaVersion.VERSION_17/g' proyecto/app/build.gradle.kts
-          sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' proyecto/app/build.gradle.kts
-          sed -i "s/jvmTarget = '1.8'/jvmTarget = '17'/g" proyecto/app/build.gradle.kts
-          sed -i 's/jvmTarget = "8"/jvmTarget = "17"/g' proyecto/app/build.gradle.kts
-          sed -i "s/jvmTarget = '8'/jvmTarget = '17'/g" proyecto/app/build.gradle.kts
+          echo "=== Estructura del proyecto ==="
+          find proyecto -maxdepth 3 -type f | sort
 
       - name: Configurar Gradle
         run: |
           echo "org.gradle.java.home=$JAVA_HOME" >> proyecto/gradle.properties
           echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> proyecto/gradle.properties
 
-      - name: Forzar Java y Kotlin a 17
+      - name: Corregir configuración Java y Kotlin
         run: |
-          cat > proyecto/init.gradle <<'EOF'
-          allprojects {
-              tasks.withType(JavaCompile).configureEach {
-                  sourceCompatibility = "17"
-                  targetCompatibility = "17"
-              }
+          python3 <<'PY'
+          from pathlib import Path
 
-              tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-                  kotlinOptions.jvmTarget = "17"
-              }
-          }
-          EOF
+          archivo = Path("proyecto/app/build.gradle.kts")
+
+          if not archivo.exists():
+              raise SystemExit("No existe proyecto/app/build.gradle.kts")
+
+          texto = archivo.read_text()
+
+          # Java 8 -> Java 17
+          texto = texto.replace(
+              "JavaVersion.VERSION_1_8",
+              "JavaVersion.VERSION_17"
+          )
+
+          texto = texto.replace(
+              "JavaVersion.VERSION_8",
+              "JavaVersion.VERSION_17"
+          )
+
+          # Kotlin antiguo
+          texto = texto.replace(
+              'jvmTarget = "1.8"',
+              'jvmTarget = "17"'
+          )
+
+          texto = texto.replace(
+              "jvmTarget = '1.8'",
+              'jvmTarget = "17"'
+          )
+
+          texto = texto.replace(
+              'jvmTarget = "8"',
+              'jvmTarget = "17"'
+          )
+
+          texto = texto.replace(
+              "jvmTarget = '8'",
+              'jvmTarget = "17"'
+          )
+
+          # Si no existe compileOptions, agregarlo dentro de android
+          if "compileOptions" not in texto:
+              texto = texto.replace(
+                  "android {",
+                  """android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }""",
+                  1
+              )
+
+          archivo.write_text(texto)
+
+          print("=== build.gradle.kts corregido ===")
+          print(texto)
+          PY
+
+      - name: Verificar configuración
+        run: |
+          echo "=== Java ==="
+          java -version
+
+          echo ""
+          echo "=== Gradle ==="
+          gradle --version
+
+          echo ""
+          echo "=== build.gradle.kts ==="
+          cat proyecto/app/build.gradle.kts
 
       - name: Compilar APK
         run: |
           cd proyecto
-          gradle assembleDebug --no-daemon --stacktrace --init-script init.gradle
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Buscar APK
         run: |
+          echo "=== APK GENERADO ==="
           find proyecto -type f -name "*.apk" -print
 
       - name: Guardar APK
