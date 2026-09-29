@@ -1,0 +1,157 @@
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Descargar proyecto
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Descomprimir proyecto
+        run: |
+          set -e
+
+          ZIP="solicitud_almacen_firebase_java17_corregido.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "❌ No se encontró $ZIP"
+            echo ""
+            echo "ZIP disponibles:"
+            find . -maxdepth 2 -type f -name "*.zip" -print
+            exit 1
+          fi
+
+          rm -rf proyecto
+          mkdir -p proyecto
+
+          unzip -q "$ZIP" -d proyecto
+
+          echo "✅ Proyecto descomprimido"
+
+      - name: Localizar proyecto Android
+        shell: bash
+        run: |
+          set -e
+
+          echo "Buscando proyecto Android..."
+
+          SETTINGS=$(find proyecto \
+            -type f \
+            -name "settings.gradle.kts" \
+            -print \
+            -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS=$(find proyecto \
+              -type f \
+              -name "settings.gradle" \
+              -print \
+              -quit)
+          fi
+
+          if [ -z "$SETTINGS" ]; then
+            echo "❌ No se encontró settings.gradle.kts ni settings.gradle"
+            echo ""
+            find proyecto -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "✅ Proyecto encontrado en:"
+          echo "$PROJECT_DIR"
+
+      - name: Verificar Gradle Wrapper
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            echo "❌ El proyecto no contiene gradlew."
+            echo ""
+            find "$PROJECT_DIR" -maxdepth 3 -type f | sort
+            exit 1
+          fi
+
+          chmod +x "$PROJECT_DIR/gradlew"
+
+          echo "✅ Gradle Wrapper encontrado"
+
+          "$PROJECT_DIR/gradlew" --version
+
+      - name: Configurar Java 17 para Gradle
+        shell: bash
+        run: |
+          set -e
+
+          echo "org.gradle.java.home=$JAVA_HOME" >> "$PROJECT_DIR/gradle.properties"
+
+          echo "Java:"
+          java -version
+
+      - name: Compilar APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "Compilando proyecto..."
+          echo "Directorio: $PWD"
+
+          java -version
+
+          ./gradlew clean --no-daemon --stacktrace
+
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Verificar APK generado
+        shell: bash
+        run: |
+          set -e
+
+          echo "APK generados:"
+
+          find "$PROJECT_DIR" \
+            -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            -print
+
+          APK=$(find "$PROJECT_DIR" \
+            -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            -print \
+            -quit)
+
+          if [ -z "$APK" ]; then
+            echo ""
+            echo "❌ No se generó ningún APK."
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ APK generado:"
+          echo "$APK"
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Solicitud-Almacen-APK
+          path: |
+            ${{ env.PROJECT_DIR }}/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
