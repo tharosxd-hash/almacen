@@ -1,0 +1,95 @@
+
+name: Compilar APK Solicitud Almacen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: solicitud-almacen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compilar aplicación Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar proyecto
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZIP="solicitud_almacen_permisos_corregidos.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "ERROR: No se encuentra el ZIP en la raíz del repositorio."
+            ls -la
+            exit 1
+          fi
+
+          mkdir -p proyecto
+          unzip -q -o "$ZIP" -d proyecto
+
+          SETTINGS="$(find proyecto -type f -name settings.gradle.kts -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: No se encontró settings.gradle.kts."
+            find proyecto -maxdepth 4 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Falta app/build.gradle.kts."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Proyecto encontrado en: $PROJECT_DIR"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Compilar APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --no-daemon --stacktrace
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: No se generó la APK."
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Solicitud-Almacen-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          
